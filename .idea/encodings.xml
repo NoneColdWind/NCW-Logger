@@ -2,7 +2,7 @@
 <project version="4">
   <component name="Encoding">
     <file url="file://$USER_HOME$/Downloads/get_admin_permission_test.bat" charset="GB2312" />
-    <file url="file://$PROJECT_DIR$/src/main/resources/script/get_admin_permission_test.bat" charset="GB2312" />
-    <file url="file://$PROJECT_DIR$/src/main/resources/script/get_admin_permission_test.bat" charset="GB2312" />
+    <file url="file://$PROJECT_DIR$/src/main/resources/scripts/test.bat" charset="GB2312" />
+    <file url="file://$PROJECT_DIR$/src/main/resources/scripts/test.bat" charset="GB2312" />
   </component>
 </project>

