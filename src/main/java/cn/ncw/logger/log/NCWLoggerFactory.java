@@ -35,10 +35,22 @@ public class NCWLoggerFactory {
         this.threadLogger.log(LEVEL.getLevel(level), message ,threadName, e);
     }
 
+    /**
+     * Do not attempt to log a message at the OFF level.
+     * <p>
+     * 不要尝试记录一个等级为OFF的日志。
+     * */
+    @Deprecated(since = "1.0.4-hotfix1")
     public void off(String message, String threadName) {
         this.off(message, threadName, null);
     }
 
+    /**
+     * Do not attempt to log a message at the OFF level.
+     * <p>
+     * 不要尝试记录一个等级为OFF的日志。
+     * */
+    @Deprecated(since = "1.0.4-hotfix1")
     public void off(String message, String threadName, Exception e) {
         this.log(LEVEL.OFF, message, threadName, e);
     }
@@ -115,6 +127,12 @@ public class NCWLoggerFactory {
         fatal(message, getName(), null);
     }
 
+    /**
+     * Do not attempt to log a message at the OFF level.
+     * <p>
+     * 不要尝试记录一个等级为OFF的日志。
+     * */
+    @Deprecated(since = "1.0.4-hotfix1")
     public void off(String message) {
         off(message, getName(), null);
     }

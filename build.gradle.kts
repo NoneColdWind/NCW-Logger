@@ -3,9 +3,11 @@ plugins {
 }
 
 group = "cn.ncw.logger"
-version = "1.0.4-hotfix1"
+version = "1.0.4-hotfix2"
 
 repositories {
+
+
     mavenCentral()
 }
 

