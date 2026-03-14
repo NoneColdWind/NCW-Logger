@@ -21,9 +21,6 @@ public class ThreadLogger {
 
     private String LoggerName;
     // 日志级别枚举
-    public enum LogLevel {
-        TRACE, DEBUG, INFO, WARN, ERROR, FATAL, OFF
-    }
 
     // 单例实例
     private static volatile ThreadLogger INSTANCE;
@@ -38,7 +35,7 @@ public class ThreadLogger {
     private volatile LogFileStrategy fileStrategy = LogFileStrategy.DAILY;
     private volatile long maxFileSize = 50 * 1024 * 1024; // 默认50MB
     private volatile int maxFiles = 10; // 保留10个文件
-    private volatile LogLevel currentLogLevel = LogLevel.INFO;
+    private volatile LEVEL currentLogLevel = LEVEL.INFO;
 
     // 当前日志文件信息
     private Path currentLogFile;
@@ -300,7 +297,7 @@ public class ThreadLogger {
     }
 
     // 记录日志
-    public void log(LogLevel level, String message, String ThreadName, Throwable throwable) {
+    public void log(LEVEL level, String message, String ThreadName, Throwable throwable) {
         if (level.ordinal() >= currentLogLevel.ordinal()) {
             try {
                 logQueue.put(new LogEntry(
@@ -411,10 +408,12 @@ public class ThreadLogger {
             if (logWriter != null) {
                 String logLine = formatLogEntry(entry);
                 logWriter.println(logLine);
-                currentFileSize += logLine.getBytes().length + System.lineSeparator().getBytes().length;
+                if (logLine != null) {
+                    currentFileSize += logLine.getBytes().length + System.lineSeparator().getBytes().length;
+                }
 
                 // 错误日志立即刷新
-                if (entry.level == LogLevel.ERROR) {
+                if (entry.level == LEVEL.ERROR) {
                     logWriter.flush();
                 }
             }
@@ -427,6 +426,10 @@ public class ThreadLogger {
 
     // 格式化日志条目
     private String formatLogEntry(LogEntry entry) {
+
+        if (entry.level == LEVEL.OFF) {
+            return null;
+        }
 
         String today = LocalDate.now().toString();
         String currentTime = LocalTime.now().toString();
@@ -466,7 +469,7 @@ public class ThreadLogger {
     }
 
     // 内部日志条目类
-        private record LogEntry(LogLevel level, String message, String threadName, Throwable throwable) {
+        private record LogEntry(LEVEL level, String message, String threadName, Throwable throwable) {
     }
 
     // 配置构建器（简化配置）
@@ -476,7 +479,7 @@ public class ThreadLogger {
         private LogFileStrategy fileStrategy;
         private long maxFileSize;
         private int maxFiles;
-        private LogLevel logLevel;
+        private LEVEL logLevel;
 
         public LogConfigBuilder setLogDirectory(String dir) {
             this.logDirectory = dir;
@@ -503,7 +506,7 @@ public class ThreadLogger {
             return this;
         }
 
-        public LogConfigBuilder setLogLevel(LogLevel level) {
+        public LogConfigBuilder setLogLevel(LEVEL level) {
             this.logLevel = level;
             return this;
         }
