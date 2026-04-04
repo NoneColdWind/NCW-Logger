@@ -7,8 +7,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-import java.util.Date;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -19,8 +18,22 @@ public class ThreadLogger {
 
     private final String APP_NAME;
 
-    private String LoggerName;
-    // 日志级别枚举
+    private String format;
+
+    private Integer length = 24;
+
+    public void setLength(int value) {
+        this.length = value;
+        updateFormat(value);
+    }
+
+    public int getLength() {
+        return this.length;
+    }
+
+    public void updateFormat(Integer value) {
+        this.format = "%s [%-5s] %-{}s %s".replace("{}", value.toString());
+    }
 
     // 单例实例
     private static volatile ThreadLogger INSTANCE;
@@ -53,7 +66,7 @@ public class ThreadLogger {
 
     public ThreadLogger(String app_name) {
         this.APP_NAME = app_name;
-        this.LoggerName = app_name;
+        this.format = "%s [%-5s] %-{}s %s".replace("{}", this.length.toString());
         this.logFileNamePattern = APP_NAME + "_{timestamp}.log";
         Runtime.getRuntime().addShutdownHook(new Thread(this::safeShutdown));
         initializeLogger();
@@ -253,7 +266,6 @@ public class ThreadLogger {
     // 解析文件名
     private String resolveFileName() {
         DateTimeFormatter formatter = switch (fileStrategy) {
-            case DAILY -> DateTimeFormatter.ofPattern("yyyyMMdd");
             case WEEKLY ->
                 // ISO周号格式
                     DateTimeFormatter.ofPattern("yyyy-'w'ww");
@@ -303,7 +315,34 @@ public class ThreadLogger {
                 logQueue.put(new LogEntry(
                         level,
                         message,
-                        LoggerName + ":" + ThreadName,
+                        APP_NAME + ":" + ThreadName,
+                        throwable
+                ));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.err.println("日志队列已满：" + message);
+            }
+        }
+    }
+
+    // 记录日志
+    public void log(LEVEL level, List<String> texts, String ThreadName, Throwable throwable) {
+        StringBuilder message = new StringBuilder();
+
+        for (int i = 0; i < texts.size(); i++) {
+            if (!Objects.equals(i, 0)) {
+                message.append("\n").append(" ".repeat(36 + length)).append(texts.get(i));
+            } else {
+                message.append(texts.get(i));
+            }
+        }
+
+        if (level.ordinal() >= currentLogLevel.ordinal()) {
+            try {
+                logQueue.put(new LogEntry(
+                        level,
+                        message.toString(),
+                        APP_NAME + ":" + ThreadName,
                         throwable
                 ));
             } catch (InterruptedException e) {
@@ -386,8 +425,7 @@ public class ThreadLogger {
 
             if (logFiles != null && logFiles.length > maxFiles) {
                 // 按最后修改时间排序（最旧的在前面）
-                Arrays.sort(logFiles, (f1, f2) ->
-                        Long.compare(f1.lastModified(), f2.lastModified()));
+                Arrays.sort(logFiles, Comparator.comparingLong(File::lastModified));
 
                 // 删除最旧的文件
                 for (int i = 0; i < logFiles.length - maxFiles; i++) {
@@ -406,6 +444,7 @@ public class ThreadLogger {
         writerLock.lock();
         try {
             if (logWriter != null) {
+
                 String logLine = formatLogEntry(entry);
                 logWriter.println(logLine);
                 if (logLine != null) {
@@ -413,7 +452,7 @@ public class ThreadLogger {
                 }
 
                 // 错误日志立即刷新
-                if (entry.level == LEVEL.ERROR) {
+                if (entry.level() == LEVEL.ERROR) {
                     logWriter.flush();
                 }
             }
@@ -427,10 +466,9 @@ public class ThreadLogger {
     // 格式化日志条目
     private String formatLogEntry(LogEntry entry) {
 
-        if (entry.level == LEVEL.OFF) {
+        if (entry.level() == LEVEL.OFF) {
             return null;
         }
-
         String today = LocalDate.now().toString();
         String currentTime = LocalTime.now().toString();
         int maxLength = 15;
@@ -438,7 +476,7 @@ public class ThreadLogger {
         String formatted = String.format("%-" + maxLength + "s", truncated);
         String timestamp = today + " " + formatted;
 
-        return String.format("%s [%-5s] %-40s %s",
+        return String.format(format,
                 timestamp,
                 entry.level,
                 entry.threadName,
@@ -469,7 +507,7 @@ public class ThreadLogger {
     }
 
     // 内部日志条目类
-        private record LogEntry(LEVEL level, String message, String threadName, Throwable throwable) {
+    private record LogEntry(LEVEL level, String message, String threadName, Throwable throwable) {
     }
 
     // 配置构建器（简化配置）
