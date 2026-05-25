@@ -1,6 +1,7 @@
 package cn.ncw.logger.log;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,90 +14,72 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 
 public class ThreadLogger {
 
-    private final String APP_NAME;
+    private final String appName;
 
     private String format;
 
-    private Integer length = 24;
+    private int length = 24;
 
     public void setLength(int value) {
         this.length = value;
-        updateFormat(value);
+        this.format = buildFormat(value);
     }
 
     public int getLength() {
         return this.length;
     }
 
-    public void updateFormat(Integer value) {
-        this.format = "%s [%-5s] %-{}s %s".replace("{}", value.toString());
+    private static String buildFormat(int len) {
+        return "%s [%-5s] %-" + len + "s %s";
     }
 
-    // 单例实例
-    private static volatile ThreadLogger INSTANCE;
     private final BlockingQueue<LogEntry> logQueue = new LinkedBlockingQueue<>(5000);
     private volatile boolean isRunning = true;
     private PrintWriter logWriter;
     private final ReentrantLock writerLock = new ReentrantLock();
 
-    // 日志配置
-    private volatile String logDirectory = "./logs"; // 默认日志目录
+    private volatile String logDirectory = "./logs";
     private volatile String logFileNamePattern;
     private volatile LogFileStrategy fileStrategy = LogFileStrategy.DAILY;
-    private volatile long maxFileSize = 50 * 1024 * 1024; // 默认50MB
-    private volatile int maxFiles = 10; // 保留10个文件
+    private volatile long maxFileSize = 50 * 1024 * 1024;
+    private volatile int maxFiles = 10;
     private volatile LEVEL currentLogLevel = LEVEL.INFO;
 
-    // 当前日志文件信息
     private Path currentLogFile;
     private volatile long currentFileSize;
     private volatile Instant lastRotationCheck = Instant.now();
 
-    // 日志文件轮换策略
     public enum LogFileStrategy {
-        SINGLE_FILE,     // 只使用一个文件
-        DAILY,           // 每天轮换
-        WEEKLY,          // 每周轮换
-        SIZE_BASED,      // 大小达到阈值轮换
-        HOURLY           // 每小时轮换
+        SINGLE_FILE,
+        DAILY,
+        WEEKLY,
+        SIZE_BASED,
+        HOURLY
     }
 
-    public ThreadLogger(String app_name) {
-        this.APP_NAME = app_name;
-        this.format = "%s [%-5s] %-{}s %s".replace("{}", this.length.toString());
-        this.logFileNamePattern = APP_NAME + "_{timestamp}.log";
+    public ThreadLogger(String appName) {
+        this.appName = appName;
+        this.format = buildFormat(this.length);
+        this.logFileNamePattern = appName + "_{timestamp}.log";
         Runtime.getRuntime().addShutdownHook(new Thread(this::safeShutdown));
         initializeLogger();
         startLoggerThread();
     }
 
-    public static ThreadLogger getInstance() {
-        if (INSTANCE == null) {
-            synchronized (ThreadLogger.class) {
-                if (INSTANCE == null) {
-                    INSTANCE = new ThreadLogger(Thread.currentThread().getName());
-                }
-            }
-        }
-        return INSTANCE;
-    }
-
-    // 配置日志设置（线程安全）
     public synchronized void configure(Consumer<LogConfigBuilder> configurator) {
         LogConfigBuilder builder = new LogConfigBuilder();
         configurator.accept(builder);
         applyConfiguration(builder);
 
-        // 如果已经初始化，需要重新打开日志文件
         if (logWriter != null) {
             rotateLogFile();
         }
     }
 
-    // 应用新配置
     private void applyConfiguration(LogConfigBuilder builder) {
         if (builder.logDirectory != null) {
             this.logDirectory = builder.logDirectory;
@@ -118,24 +101,18 @@ public class ThreadLogger {
         }
     }
 
-    // 初始化日志记录器
     private void initializeLogger() {
         try {
-            // 确保日志目录存在
             Files.createDirectories(Paths.get(logDirectory));
-
-            // 创建初始日志文件
             createNewLogFile();
         } catch (IOException e) {
             System.err.println("日志初始化失败: " + e.getMessage());
         }
     }
 
-    // 创建新的日志文件
     private void createNewLogFile() {
         writerLock.lock();
         try {
-            // 关闭当前日志文件（如果存在）
             if (logWriter != null) {
                 try {
                     logWriter.flush();
@@ -145,53 +122,49 @@ public class ThreadLogger {
                 }
             }
 
-            // 确保日志目录存在
             createLogDirectory();
 
-            // 生成有效的文件名
             String fileName = resolveValidFileName();
             Path filePath = Paths.get(logDirectory, fileName);
 
-            // 创建新文件
             if (!Files.exists(filePath)) {
                 try {
                     Files.createFile(filePath);
                 } catch (FileAlreadyExistsException e) {
-                    // 文件已存在是正常情况
+                    // concurrent creation is fine
                 }
             }
 
             currentLogFile = filePath;
-            currentFileSize = Files.size(filePath); // 获取现有文件大小
+            currentFileSize = Files.size(filePath);
 
-            // 创建新的日志写入器
             logWriter = new PrintWriter(
                     new BufferedWriter(
-                            new FileWriter(filePath.toFile(), true)
+                            new OutputStreamWriter(
+                                    new FileOutputStream(filePath.toFile(), true),
+                                    StandardCharsets.UTF_8
+                            )
                     ),
-                    true // 自动刷新
+                    true
             );
 
         } catch (Exception e) {
             System.err.println("创建日志文件失败: " + e.getMessage());
-            // 创建备用日志文件
             createFallbackLogFile(e);
         } finally {
             writerLock.unlock();
         }
     }
-    // 确保日志目录存在（修复问题核心）
+
     private void createLogDirectory() throws IOException {
         Path logDirPath = Paths.get(logDirectory);
 
-        // 检查目录是否存在
         if (!Files.exists(logDirPath)) {
             try {
                 Files.createDirectories(logDirPath);
             } catch (FileAlreadyExistsException e) {
-                // 并发情况下其他线程可能已创建目录
+                // concurrent creation is fine
             } catch (Exception e) {
-                // 创建失败时尝试在当前目录创建
                 if (!Files.exists(logDirPath)) {
                     logDirectory = "./logs_fallback";
                     logDirPath = Paths.get(logDirectory);
@@ -200,19 +173,16 @@ public class ThreadLogger {
             }
         }
 
-        // 确保目录是可写的
         File dir = logDirPath.toFile();
         if (!dir.canWrite()) {
             throw new IOException("目录不可写: " + logDirectory);
         }
     }
 
-    // 生成有效的文件名（避免无效字符）
     private String resolveValidFileName() {
         String timestamp = LocalDateTime.now().format(
                 DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
 
-        // 清理非法字符
         String safePattern = logFileNamePattern
                 .replace("\\", "_")
                 .replace("/", "_")
@@ -224,38 +194,37 @@ public class ThreadLogger {
                 .replace(">", "_")
                 .replace("|", "_");
 
-        // 限制文件名长度
         return safePattern
                 .replace("{timestamp}", timestamp)
                 .replace("{date}", LocalDate.now().toString());
     }
 
-    // 文件名错误时创建备用文件
     private void createFallbackLogFile(Exception originalError) {
         try {
-            // 在临时目录创建日志文件
             Path tempDir = Files.createTempDirectory("logger_fallback_");
             Path fallbackFile = tempDir.resolve("error_" + System.currentTimeMillis() + ".log");
 
-            FileWriter fw = new FileWriter(fallbackFile.toFile());
-            fw.write("日志系统初始化失败:\n");
-            fw.write("原始错误: " + originalError + "\n");
-            fw.write("当前时间: " + new Date() + "\n");
+            try (FileWriter fw = new FileWriter(fallbackFile.toFile(), StandardCharsets.UTF_8)) {
+                fw.write("日志系统初始化失败:\n");
+                fw.write("原始错误: " + originalError + "\n");
+                fw.write("当前时间: " + new Date() + "\n");
 
-            // 写入系统属性
-            System.getProperties().forEach((k, v) -> {
-                try {
-                    fw.write(k + " = " + v + "\n");
-                } catch (IOException e) {
-                    // 忽略
+                for (Map.Entry<Object, Object> entry : System.getProperties().entrySet()) {
+                    fw.write(entry.getKey() + " = " + entry.getValue() + "\n");
                 }
-            });
+            }
 
-            fw.close();
             System.err.println("创建了错误日志文件: " + fallbackFile);
 
-            // 设置当前日志文件
-            logWriter = new PrintWriter(fallbackFile.toFile());
+            logWriter = new PrintWriter(
+                    new BufferedWriter(
+                            new OutputStreamWriter(
+                                    new FileOutputStream(fallbackFile.toFile(), true),
+                                    StandardCharsets.UTF_8
+                            )
+                    ),
+                    true
+            );
             currentLogFile = fallbackFile;
             currentFileSize = 0;
         } catch (Exception ex) {
@@ -263,12 +232,9 @@ public class ThreadLogger {
         }
     }
 
-    // 解析文件名
     private String resolveFileName() {
         DateTimeFormatter formatter = switch (fileStrategy) {
-            case WEEKLY ->
-                // ISO周号格式
-                    DateTimeFormatter.ofPattern("yyyy-'w'ww");
+            case WEEKLY -> DateTimeFormatter.ofPattern("yyyy-'w'ww");
             case HOURLY -> DateTimeFormatter.ofPattern("yyyyMMdd_HH");
             case SIZE_BASED -> DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
             default -> DateTimeFormatter.ofPattern("yyyyMMdd");
@@ -284,75 +250,53 @@ public class ThreadLogger {
         loggerThread.start();
     }
 
-    // 安全关闭日志
     public void shutdown() {
         isRunning = false;
         safeShutdown();
     }
 
     private void safeShutdown() {
-        if (logWriter != null) {
-            writerLock.lock();
-            try {
+        writerLock.lock();
+        try {
+            if (logWriter != null) {
+                while (!logQueue.isEmpty()) {
+                    LogEntry entry = logQueue.poll();
+                    if (entry != null) {
+                        writeToLog(entry);
+                    }
+                }
                 logWriter.flush();
                 logWriter.close();
                 logWriter = null;
-
-                // 处理队列中剩余日志
-                while (!logQueue.isEmpty()) {
-                    writeToLog(logQueue.poll());
-                }
-            } finally {
-                writerLock.unlock();
             }
+        } finally {
+            writerLock.unlock();
         }
     }
 
-    // 记录日志
-    public void log(LEVEL level, String message, String ThreadName, Throwable throwable) {
-        if (level.ordinal() >= currentLogLevel.ordinal()) {
-            try {
-                logQueue.put(new LogEntry(
-                        level,
-                        message,
-                        APP_NAME + ":" + ThreadName,
-                        throwable
-                ));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                System.err.println("日志队列已满：" + message);
-            }
+    public void log(LEVEL level, String message, String threadName, Throwable throwable) {
+        if (level == LEVEL.OFF) return;
+        if (level.ordinal() < currentLogLevel.ordinal()) return;
+        try {
+            logQueue.put(new LogEntry(level, message, appName + ":" + threadName, throwable));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.err.println("日志队列已满：" + message);
         }
     }
 
-    // 记录日志
-    public void log(LEVEL level, List<String> texts, String ThreadName, Throwable throwable) {
-        StringBuilder message = new StringBuilder();
-
-        for (int i = 0; i < texts.size(); i++) {
-            if (!Objects.equals(i, 0)) {
-                message.append("\n").append(" ".repeat(36 + length)).append(texts.get(i));
-            } else {
-                message.append(texts.get(i));
-            }
-        }
-
-        if (level.ordinal() >= currentLogLevel.ordinal()) {
-            try {
-                logQueue.put(new LogEntry(
-                        level,
-                        message.toString(),
-                        APP_NAME + ":" + ThreadName,
-                        throwable
-                ));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                System.err.println("日志队列已满：" + message);
-            }
+    public void log(LEVEL level, List<String> texts, String threadName, Throwable throwable) {
+        if (level == LEVEL.OFF) return;
+        if (level.ordinal() < currentLogLevel.ordinal()) return;
+        String message = joinTexts(texts);
+        try {
+            logQueue.put(new LogEntry(level, message, appName + ":" + threadName, throwable));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.err.println("日志队列已满：" + message);
         }
     }
 
-    // 处理日志消息
     private void processLogs() {
         while (isRunning || !logQueue.isEmpty()) {
             try {
@@ -367,13 +311,11 @@ public class ThreadLogger {
             }
         }
 
-        // 处理剩余日志
         while (!logQueue.isEmpty()) {
             writeToLog(logQueue.poll());
         }
     }
 
-    // 检查是否需要轮换日志文件
     private void checkRotationNeeded() {
         if (fileStrategy == LogFileStrategy.SINGLE_FILE) return;
 
@@ -394,40 +336,29 @@ public class ThreadLogger {
         }
     }
 
-    // 轮换日志文件
     private void rotateLogFile() {
         createNewLogFile();
         cleanupOldFiles();
     }
 
-    // 清理旧日志文件
     private void cleanupOldFiles() {
         try {
-            // 检查目录是否存在
             File logDir = new File(logDirectory);
             if (!logDir.exists() || !logDir.isDirectory()) {
                 System.err.println("日志目录不存在: " + logDirectory);
                 return;
             }
 
-            // 动态生成文件名前缀
             String basePattern = logFileNamePattern.replace("{timestamp}", "");
-            String patternPrefix = basePattern
-                    .replace(".", "-")
-                    .replace("[", "-")
-                    .replace("]", "-")
-                    .replace("(", "-")
-                    .replace(")", "-");
+            String regexSafePrefix = Pattern.quote(basePattern);
 
             File[] logFiles = logDir.listFiles((dir, name) ->
-                    name.matches("^" + patternPrefix + ".+\\.log$")
+                    name.matches("^" + regexSafePrefix + ".+\\.log$")
             );
 
             if (logFiles != null && logFiles.length > maxFiles) {
-                // 按最后修改时间排序（最旧的在前面）
                 Arrays.sort(logFiles, Comparator.comparingLong(File::lastModified));
 
-                // 删除最旧的文件
                 for (int i = 0; i < logFiles.length - maxFiles; i++) {
                     Files.deleteIfExists(logFiles[i].toPath());
                 }
@@ -439,21 +370,19 @@ public class ThreadLogger {
         }
     }
 
-    // 写入日志
     private void writeToLog(LogEntry entry) {
         writerLock.lock();
         try {
             if (logWriter != null) {
-
                 String logLine = formatLogEntry(entry);
-                logWriter.println(logLine);
                 if (logLine != null) {
-                    currentFileSize += logLine.getBytes().length + System.lineSeparator().getBytes().length;
-                }
+                    logWriter.println(logLine);
+                    currentFileSize += logLine.getBytes(StandardCharsets.UTF_8).length
+                            + System.lineSeparator().getBytes(StandardCharsets.UTF_8).length;
 
-                // 错误日志立即刷新
-                if (entry.level() == LEVEL.ERROR) {
-                    logWriter.flush();
+                    if (entry.level().ordinal() >= LEVEL.ERROR.ordinal()) {
+                        logWriter.flush();
+                    }
                 }
             }
         } catch (Exception e) {
@@ -463,29 +392,24 @@ public class ThreadLogger {
         }
     }
 
-    // 格式化日志条目
     private String formatLogEntry(LogEntry entry) {
-
         if (entry.level() == LEVEL.OFF) {
             return null;
         }
+        String timestamp = buildTimestamp();
+        return String.format(format, timestamp, entry.level(), entry.threadName(), entry.message());
+    }
+
+    private static String buildTimestamp() {
         String today = LocalDate.now().toString();
         String currentTime = LocalTime.now().toString();
         int maxLength = 15;
         String truncated = currentTime.substring(0, Math.min(currentTime.length(), maxLength));
         String formatted = String.format("%-" + maxLength + "s", truncated);
-        String timestamp = today + " " + formatted;
-
-        return String.format(format,
-                timestamp,
-                entry.level,
-                entry.threadName,
-                entry.message);
+        return today + " " + formatted;
     }
 
-    // 直接更改日志目录
     public void changeLogDirectory(String newDirectory) {
-        // 规范化路径分隔符
         String normalizedDir = newDirectory
                 .replace("\\", File.separator)
                 .replace("/", File.separator);
@@ -493,24 +417,21 @@ public class ThreadLogger {
         configure(builder -> builder.setLogDirectory(normalizedDir));
     }
 
-    private void printDirectoryStatus(Path path) {
-        try {
-            System.out.println("目录信息: " + path);
-            System.out.println("是否存在: " + Files.exists(path));
-            System.out.println("是否为目录: " + Files.isDirectory(path));
-            System.out.println("权限: 读=" + Files.isReadable(path)
-                    + " 写=" + Files.isWritable(path)
-                    + " 执行=" + Files.isExecutable(path));
-        } catch (Exception e) {
-            System.err.println("获取目录状态失败: " + e.getMessage());
+    private String joinTexts(List<String> texts) {
+        StringBuilder sb = new StringBuilder();
+        String indent = " ".repeat(36 + length);
+        for (int i = 0; i < texts.size(); i++) {
+            if (i > 0) {
+                sb.append("\n").append(indent);
+            }
+            sb.append(texts.get(i));
         }
+        return sb.toString();
     }
 
-    // 内部日志条目类
     private record LogEntry(LEVEL level, String message, String threadName, Throwable throwable) {
     }
 
-    // 配置构建器（简化配置）
     public static class LogConfigBuilder {
         private String logDirectory;
         private String logFileNamePattern;

@@ -2,13 +2,13 @@ package cn.ncw.logger.log;
 
 
 public enum LEVEL {
-    DEBUG, TRACE, INFO, WARN, ERROR, FATAL, OFF;
+    TRACE, DEBUG, INFO, WARN, ERROR, FATAL, OFF;
 
 
-    public static LEVEL getLevel( String level) {
+    public static LEVEL getLevel(String level) {
         return switch (level) {
-            case "DEBUG" -> DEBUG;
             case "TRACE" -> TRACE;
+            case "DEBUG" -> DEBUG;
             case "INFO" -> INFO;
             case "WARN" -> WARN;
             case "ERROR" -> ERROR;
